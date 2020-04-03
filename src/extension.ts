@@ -47,7 +47,7 @@ export function activate(context: vscode.ExtensionContext) {
 				fs.mkdtemp(path.join(os.tmpdir(), 'amaxa-'), (err, folder) => {
 					if (err) { throw err; }
 
-					const data = new Uint8Array(Buffer.from(`version: 2\ncredentials:\n\tsfdx: ${sfdx_org}`));
+					const data = new Uint8Array(Buffer.from(`version: 2\ncredentials:\n    sfdx: ${sfdx_org}`));
 					let cred_path = path.join(folder, 'credentials.yml');
 
 					fs.writeFile(cred_path, data, (err) => {
@@ -57,11 +57,11 @@ export function activate(context: vscode.ExtensionContext) {
 						const amaxa_process = child_process.spawn('/home/dreed/.local/bin/amaxa', ['--load', configPath, '-c', cred_path], { cwd: path.dirname(configPath) });
 
 						amaxa_process.stdout.on('data', (output) => {
-							oc.append(output);
+							oc.appendLine(output);
 						});
 
 						amaxa_process.stderr.on('data', (output) => {
-							oc.append(output);
+							oc.appendLine(output);
 						});
 
 						amaxa_process.on('close', (status_code) => {
