@@ -5,13 +5,14 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as child_process from 'child_process';
 import * as path from 'path';
+import * as util from 'util';
 
-function doOperation(op: string) {
+async function doOperation(op: string) {
 	// Check for Amaxa
 
 	// Get the operation definition
 
-	vscode.window.showOpenDialog(
+	let configuration = await vscode.window.showOpenDialog(
 		{
 			canSelectFiles: true,
 			canSelectFolders: false,
@@ -20,64 +21,56 @@ function doOperation(op: string) {
 				'Amaxa Configuration': ['yaml', 'yml', 'json']
 			}
 		}
-	).then(result => {
-		if (result === undefined) { return; }
+	);
+	if (configuration === undefined) { return; }
 
-		let configPath = result[0].fsPath;
+	let configPath = configuration[0].fsPath;
 
-		// Ask what kind of org they want to use: SFDX, or login.
-		// Start with just SFDX auth.
+	// Ask what kind of org they want to use: SFDX, or login.
+	// Start with just SFDX auth.
 
-		vscode.window.showInputBox({
-			prompt: 'SFDX org alias or username'
-		}).then(result => {
-			if (result === undefined) { return; }
-			let sfdx_org = result;
-			let oc = vscode.window.createOutputChannel('Amaxa');
+	let sfdx_org = await vscode.window.showInputBox({
+		prompt: 'SFDX org alias or username'
+	});
+	if (sfdx_org === undefined) { return; }
 
-			oc.appendLine('Starting Amaxa operation');
+	let oc = vscode.window.createOutputChannel('Amaxa');
 
-			// Synthesize a credential file
-			fs.mkdtemp(path.join(os.tmpdir(), 'amaxa-'), (err, folder) => {
-				if (err) { throw err; }
+	oc.appendLine('Starting Amaxa operation');
 
-				const data = new Uint8Array(Buffer.from(`version: 2\ncredentials:\n    sfdx: ${sfdx_org}`));
-				let cred_path = path.join(folder, 'credentials.yml');
+	// Synthesize a credential file
+	let folder = await util.promisify(fs.mkdtemp)(path.join(os.tmpdir(), 'amaxa-'));
+	const data = new Uint8Array(Buffer.from(`version: 2\ncredentials:\n    sfdx: ${sfdx_org}`));
+	let cred_path = path.join(folder, 'credentials.yml');
+	await util.promisify(fs.writeFile)(cred_path, data);
 
-				fs.writeFile(cred_path, data, (err) => {
-					if (err) { throw err; }
+	let args = [configPath, '-c', cred_path];
 
-					let args = [configPath, '-c', cred_path];
+	if (op === 'load') {
+		args.push('--load');
+	}
 
-					if (op === 'load') {
-						args.push('--load');
-					}
+	// Invoke Amaxa
+	const amaxa_process = child_process.spawn(
+		'/home/dreed/.local/bin/amaxa',
+		args,
+		{ cwd: path.dirname(configPath) }
+	);
 
-					// Invoke Amaxa
-					const amaxa_process = child_process.spawn(
-						'/home/dreed/.local/bin/amaxa',
-						args,
-						{ cwd: path.dirname(configPath) }
-					);
+	amaxa_process.stdout.on('data', (output) => {
+		oc.appendLine(output);
+	});
 
-					amaxa_process.stdout.on('data', (output) => {
-						oc.appendLine(output);
-					});
+	amaxa_process.stderr.on('data', (output) => {
+		oc.appendLine(output);
+	});
 
-					amaxa_process.stderr.on('data', (output) => {
-						oc.appendLine(output);
-					});
+	amaxa_process.on('close', (status_code) => {
+		oc.append(`\nOperation completed with code ${status_code}\n`);
+	});
 
-					amaxa_process.on('close', (status_code) => {
-						oc.append(`\nOperation completed with code ${status_code}\n`);
-					});
-
-					amaxa_process.on('error', (err) => {
-						oc.append(`Unable to launch Amaxa: ${err}\n`);
-					});
-				});
-			});
-		});
+	amaxa_process.on('error', (err) => {
+		oc.append(`Unable to launch Amaxa: ${err}\n`);
 	});
 }
 
