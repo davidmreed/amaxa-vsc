@@ -6,81 +6,89 @@ import * as os from 'os';
 import * as child_process from 'child_process';
 import * as path from 'path';
 
-// this method is called when your extension is activated
-// your extension is activated the very first time the command is executed
-export function activate(context: vscode.ExtensionContext) {
-	// The command has been defined in the package.json file
-	// Now provide the implementation of the command with registerCommand
-	// The commandId parameter must match the command field in package.json
-	context.subscriptions.push(vscode.commands.registerCommand('extension.runLoad', () => {
-		// Check for Amaxa
+function doOperation(op: string) {
+	// Check for Amaxa
 
-		// Get the operation definition
+	// Get the operation definition
 
-		vscode.window.showOpenDialog(
-			{
-				canSelectFiles: true,
-				canSelectFolders: false,
-				canSelectMany: false,
-				filters: {
-					'Amaxa Configuration': ['yaml', 'yml', 'json']
-				}
+	vscode.window.showOpenDialog(
+		{
+			canSelectFiles: true,
+			canSelectFolders: false,
+			canSelectMany: false,
+			filters: {
+				'Amaxa Configuration': ['yaml', 'yml', 'json']
 			}
-		).then(result => {
+		}
+	).then(result => {
+		if (result === undefined) { return; }
+
+		let configPath = result[0].fsPath;
+
+		// Ask what kind of org they want to use: SFDX, or login.
+		// Start with just SFDX auth.
+
+		vscode.window.showInputBox({
+			prompt: 'SFDX org alias or username'
+		}).then(result => {
 			if (result === undefined) { return; }
+			let sfdx_org = result;
+			let oc = vscode.window.createOutputChannel('Amaxa');
 
-			let configPath = result[0].fsPath;
+			oc.appendLine('Starting Amaxa operation');
 
-			// Ask what kind of org they want to use: SFDX, or login.
-			// Start with just SFDX auth.
+			// Synthesize a credential file
+			fs.mkdtemp(path.join(os.tmpdir(), 'amaxa-'), (err, folder) => {
+				if (err) { throw err; }
 
-			vscode.window.showInputBox({
-				prompt: 'SFDX org alias or username'
-			}).then(result => {
-				if (result === undefined) { return; }
-				let sfdx_org = result;
-				let oc = vscode.window.createOutputChannel('Amaxa');
+				const data = new Uint8Array(Buffer.from(`version: 2\ncredentials:\n    sfdx: ${sfdx_org}`));
+				let cred_path = path.join(folder, 'credentials.yml');
 
-				oc.appendLine('Starting Amaxa load');
-
-				// Synthesize a credential file
-				fs.mkdtemp(path.join(os.tmpdir(), 'amaxa-'), (err, folder) => {
+				fs.writeFile(cred_path, data, (err) => {
 					if (err) { throw err; }
 
-					const data = new Uint8Array(Buffer.from(`version: 2\ncredentials:\n    sfdx: ${sfdx_org}`));
-					let cred_path = path.join(folder, 'credentials.yml');
+					let args = [configPath, '-c', cred_path];
 
-					fs.writeFile(cred_path, data, (err) => {
-						if (err) { throw err; }
+					if (op === 'load') {
+						args.push('--load');
+					}
 
-						// Invoke Amaxa
-						const amaxa_process = child_process.spawn('/home/dreed/.local/bin/amaxa', ['--load', configPath, '-c', cred_path], { cwd: path.dirname(configPath) });
+					// Invoke Amaxa
+					const amaxa_process = child_process.spawn(
+						'/home/dreed/.local/bin/amaxa',
+						args,
+						{ cwd: path.dirname(configPath) }
+					);
 
-						amaxa_process.stdout.on('data', (output) => {
-							oc.appendLine(output);
-						});
+					amaxa_process.stdout.on('data', (output) => {
+						oc.appendLine(output);
+					});
 
-						amaxa_process.stderr.on('data', (output) => {
-							oc.appendLine(output);
-						});
+					amaxa_process.stderr.on('data', (output) => {
+						oc.appendLine(output);
+					});
 
-						amaxa_process.on('close', (status_code) => {
-							oc.append(`\nLoad completed with code ${status_code}\n`);
-						});
+					amaxa_process.on('close', (status_code) => {
+						oc.append(`\nOperation completed with code ${status_code}\n`);
+					});
 
-						amaxa_process.on('error', (err) => {
-							oc.append(`Unable to launch Amaxa: ${err}\n`);
-						});
+					amaxa_process.on('error', (err) => {
+						oc.append(`Unable to launch Amaxa: ${err}\n`);
 					});
 				});
 			});
 		});
+	});
+}
+
+export function activate(context: vscode.ExtensionContext) {
+	context.subscriptions.push(vscode.commands.registerCommand('extension.runLoad', () => {
+		doOperation('load');
 	}));
 
 	context.subscriptions.push(vscode.commands.registerCommand('extension.runExtraction', () => {
-
+		doOperation('extract');
 	}));
 }
 
-// this method is called when your extension is deactivated
 export function deactivate() { }
