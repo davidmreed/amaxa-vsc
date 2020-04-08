@@ -52,7 +52,7 @@ async function doOperation(op: string) {
 
 	// Invoke Amaxa
 	const amaxa_process = child_process.spawn(
-		'/home/dreed/.local/bin/amaxa',
+		'amaxa',
 		args,
 		{ cwd: path.dirname(configPath) }
 	);
@@ -66,7 +66,11 @@ async function doOperation(op: string) {
 	});
 
 	amaxa_process.on('close', (status_code) => {
-		oc.append(`\nOperation completed with code ${status_code}\n`);
+		if (status_code === 0) {
+			oc.append(`\nOperation completed successfully.\n`);
+		} else {
+			oc.append(`\nOperation completed unsuccessfully with code ${status_code}\n`);
+		}
 	});
 
 	amaxa_process.on('error', (err) => {
